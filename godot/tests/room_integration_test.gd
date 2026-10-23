@@ -11,6 +11,12 @@ var _actions_started: int = 0
 var _saw_flame_hit: bool = false
 var _saw_unmodified_skill: bool = false
 var _wind_cooldown_at_start: float = -1.0
+## RunManager pauses itself on NOTIFICATION_APPLICATION_FOCUS_OUT (correct player-facing
+## behaviour: alt-tab must pause). Any other window taking focus during a fight makes the
+## fight loop exit immediately with the player untouched, which used to be reported as a
+## mysterious "combat clears enemies (27 frames, HP 100)" failure. Counting and resuming
+## keeps the result honest: a non-zero count means the desktop was stolen mid-run.
+var _focus_pauses: int = 0
 
 
 func _initialize() -> void:
@@ -24,10 +30,20 @@ func _test() -> void:
 	root.add_child(_run)
 	current_scene = _run
 	_bind()
-	await _ticks(20)
+	await _ticks(5)
+	# The game can only capture the mouse while its OS window owns the foreground. On an
+	# unattended desktop another window can hold it for seconds, which used to fail the
+	# capture assertion for reasons unrelated to the game. A real player clicking the
+	# window always has the foreground, so claiming it here restores the real precondition
+	# instead of weakening the assertion.
+	DisplayServer.window_move_to_foreground()
+	for frame: int in range(300):
+		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			break
+		await _ticks(1)
 	_check(Input.mouse_mode == Input.MOUSE_MODE_CAPTURED, "P4 graphical session captures mouse")
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-		quit(2)
+		_abort("desktop focus unavailable: the game could not capture the mouse. This is an invalid environment for a graphical run, not a game defect.")
 		return
 	await _screenshot("room_preview.png")
 	await _escape()
@@ -107,13 +123,16 @@ func _test() -> void:
 	var deadline: int = Time.get_ticks_msec() + 200
 	while Time.get_ticks_msec() < deadline:
 		await process_frame
-	print("ROOM INTEGRATION RESULT: %d checks, %d failures" % [_checks, _failures])
+	print("ROOM INTEGRATION RESULT: %d checks, %d failures (focus pauses: %d)" % [_checks, _failures, _focus_pauses])
 	quit(0 if _failures == 0 else 1)
 
 
 func _fight(number: int) -> void:
 	var frames: int = 0
 	for frame: int in range(1800):
+		if _run.current_state == RunManager.State.PAUSED:
+			_focus_pauses += 1
+			_run.resume()
 		if _run.current_state != RunManager.State.COMBAT or not _player.health.is_alive():
 			break
 		frames += 1
@@ -125,7 +144,7 @@ func _fight(number: int) -> void:
 		_max_actions = maxi(_max_actions, active)
 		await _ticks(1)
 	_release()
-	_check(_run.room.get_living_enemy_count() == 0 and _player.health.is_alive(), "room %d: real-input combat clears enemies (%d frames, HP %d)" % [number, frames, _player.health.current_health])
+	_check(_run.room.get_living_enemy_count() == 0 and _player.health.is_alive(), "room %d: real-input combat clears enemies (%d frames, HP %d, focus pauses %d, exit state %s, tree paused %s, living %d)" % [number, frames, _player.health.current_health, _focus_pauses, RunManager.State.keys()[_run.current_state], paused, _run.room.get_living_enemy_count()])
 	_check(_run.current_state == RunManager.State.CHOOSING, "room %d: last real hit opens reward modal" % number)
 
 
@@ -208,13 +227,45 @@ func _click_card(id: String) -> void:
 
 
 func _click_button(text: String) -> void:
-	var buttons: Array[Node] = _run.ui.find_children("*", "Button", true, false)
-	for node: Node in buttons:
-		var button: Button = node as Button
-		if button.text == text and button.is_visible_in_tree():
-			await _pointer_click(button)
+	var button: Button = await _find_button(text, 240)
+	if button == null:
+		_check(false, "button is available: " + text)
+		return
+	await _pointer_click(button)
+
+
+## Waits for a button instead of assuming a fixed number of frames is enough.
+## A fixed `_ticks(8)` window made victory-menu navigation fail whenever the scene
+## swap took slightly longer, which surfaced as unrelated cascading failures.
+func _find_button(text: String, limit: int) -> Button:
+	for frame: int in range(limit):
+		var host: Node = current_scene if current_scene != null else _run
+		if host != null:
+			for node: Node in host.find_children("*", "Button", true, false):
+				var button: Button = node as Button
+				if button.text == text and button.is_visible_in_tree():
+					return button
+		await _ticks(1)
+	return null
+
+
+func _await_main_menu(limit: int = 300) -> void:
+	for frame: int in range(limit):
+		if current_scene is MainMenu and not paused:
 			return
-	_check(false, "button is available: " + text)
+		await _ticks(1)
+
+
+## Takes the previous run's instance id rather than the object: after a restart the old
+## RunManager is already freed, and passing a freed object into a typed parameter raises
+## "is not a subclass of the expected argument class" and kills the coroutine.
+func _await_new_run(previous_id: int, limit: int = 300) -> RunManager:
+	for frame: int in range(limit):
+		var scene: Node = current_scene
+		if scene is RunManager and scene.get_instance_id() != previous_id:
+			return scene as RunManager
+		await _ticks(1)
+	return current_scene as RunManager
 
 
 func _pointer_click(button: Button) -> void:
@@ -266,3 +317,14 @@ func _check(condition: bool, description: String) -> void:
 	else:
 		_failures += 1
 		printerr("FAIL: " + description)
+
+
+## Stops the run immediately instead of letting a broken precondition cascade into a
+## meaningless assertion, or into a coroutine error that never reaches quit() and makes
+## the whole suite hang until the harness timeout.
+func _abort(reason: String) -> void:
+	for action: String in ["move_forward", "move_backward", "move_left", "move_right", "jump", "dodge", "attack", "skill"]:
+		Input.action_release(action)
+	printerr("ABORT: " + reason)
+	print("INTEGRATION ABORTED: %d checks, %d failures (reason: %s)" % [_checks, _failures, reason])
+	quit(1)

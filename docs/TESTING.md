@@ -1,4 +1,136 @@
-# P6 验收记录与人工测试
+# Star Abyss 测试记录与验证方法
+
+本文件由 QA 维护。**当前有效的测试分层、命令与结果见「P7」章节**。P6 及更早章节是历史验收记录，其中出现的 PowerShell 7 命令（`pwsh -File tools/verify.ps1`）、`E:\share\Godot_v4.7\...` 引擎路径和 GTX 1660 SUPER 显卡只描述当时的执行环境，**不代表当前机器**（本机无 pwsh 7，引擎在 `D:\game\apps\godot\`，显卡为 RTX 3050）。
+
+## P7 测试分层与验证方法（当前有效）
+
+日期：2026-10-23（Asia/Shanghai）。P7 范围：音效/VFX 打磨、性能实测、Windows 导出与可运行包验收；玩法范围不变。
+
+### 1. 四层证据链（缺一层就有覆盖空洞）
+
+| 层 | 验证什么 | 怎么跑 | 不能证明什么 |
+| --- | --- | --- | --- |
+| L1 headless | 规则、数值、状态机、AI 行为、流程、音频资源、VFX 资源。无窗口，`--headless`，可控且快 | `py tools\verify.py --headless-only` | 窗口、Forward+ 渲染、真实鼠标、注入输入的完整局 |
+| L2 图形 | 真实窗口 + Forward+ 渲染 + 注入键鼠 + 真实物理步进，含三房通关闭环 | `py tools\verify.py` | 发布包本身（跑的是工程源码） |
+| L3 打包数据 | 两层互补：`pack_audit.gd` 证明**清单完整**（27 音频 cue 可解码、7 场景、7 GLB、无测试泄漏、主场景设置正确，75 项）；`export-smoke` 证明**真的能玩起来**（无测试源码、主菜单真实点击、骨骼/武器加载、移动/技能输入、暂停、重开、返回菜单，15 项） | `& $G --headless --main-pack <你的.pck> --script D:\game\StarAbyss\tools\pack_audit.gd --audio-driver Dummy`（零窗口）<br>`py tools\verify.py --packed <你的.pck> --only export-smoke`（图形） | 真实 exe 的原生输入（官方 release 模板禁止脚本注入）。怀疑包坏时先跑 `tools/pack_diagnose.gd` 看 `project.binary` 的 magic 与长度。**`pack_audit` 不解析 GDScript，不能替代 `export-smoke`**：曾出现"审计 75/75 通过、但包内 `actor_presentation.gd` 是半保存的版本（Parse Error）、玩家表现层全坏"的中间包，只有 `export-smoke` 能抓到。**两件都必须跑才算验完包。** |
+| L4 发布 exe 原生输入 | 真实 `StarAbyss.exe`（**cwd = 包目录，exe 与 pck 必须同目录**，`embed_pck=false`）在 **OS 级注入**（Win32 `keybd_event`/`mouse_event`）下画面确实响应；同时记录进程启动→窗口句柄→首个可识别画面的耗时与退出码 | `powershell -NoProfile -ExecutionPolicy Bypass -File .local\validation\native_input_check.ps1 -Exe '<包目录>\StarAbyss.exe'` | 完整闭环与手感。该层只提供"**OS 级注入输入 + 画面差异佐证**"，闭环由 L2+L3 覆盖；`human_playtest_verified` 恒为 `false` |
+
+**触发条件（AGENTS.md 要求，必须遵守）**：凡改动**渲染 / 着色器 / 材质 / VFX / 光照 / UI 布局**，除 L1 headless 外**必须**再跑图形环境检查（`py tools\verify.py`），因为 headless 完全不执行 Forward+ 渲染管线，测不到着色器编译失败、黑屏、纯色、透明异常。P7 的 VFX 与材质类改动均已按此加跑图形验证：`vfx-rendering` 22 项、`art-rendering` 97 项（含真实帧截图），并额外用 `tools/screenshot_check.py` 做像素统计排除"截图存在但画面空白"。
+
+**L4 抓图的三条硬性要求**（踩过的坑，写脚本时照抄）：
+1. **先确认窗口在前台**：`ShowWindow(SW_RESTORE)` + `SetForegroundWindow` + 断言 `GetForegroundWindow()==hwnd`。`CopyFromScreen` 抓的是屏幕上那块矩形，**谁在最上层就抓谁**——若被别的窗口盖住，注入的键鼠也会发错对象，结论完全失真。
+2. **抓客户区**（`GetClientRect` + `ClientToScreen`），不要抓整窗：避免标题栏/边框，也避免抓到边框外覆盖的窗口。
+3. **每张图都要自证是游戏画面**：`4 < mean_luma < 200` 且 `quantized_colours ≥ 24`。**lum≈244 的内容和 lum≈0 的黑帧都不算"已渲染"**。⚠️ 实测发现 `lum≈244` 的内容**不是游戏渲染**：该亮度在多个独立会话中恒定（244.25 / 244.30 / 244.52），而 `project.godot` 未配置 `boot_splash`（引擎默认启动画面为深色），故那是**测试机前台另一个白色窗口被截进来**（推理见 `docs/FREEZE_CHECKLIST.md` 结尾）。游戏自身的启动画面是**引擎默认启动图**，不是白屏。不满足判据就重采，不要当成"游戏不响应输入"。
+
+### 2. 运行器与命令
+
+本机**只有 Windows PowerShell 5.1，没有 pwsh 7**，`tools/verify.ps1`（`#Requires -Version 7.0`）**不可用**。一律使用 Python 运行器（无 `python` 命令，需 `py` 启动器）：
+
+```powershell
+$PY = "C:\Users\hongxinyu\AppData\Local\Programs\Python\Launcher\py.exe"
+cd D:\game\StarAbyss
+
+# L1 headless 全量
+& $PY tools\verify.py --headless-only --json .local\validation\baseline_headless.json
+
+# L2 图形全量（需要独占窗口，勿移动鼠标）
+& $PY tools\verify.py --json .local\validation\full_graphical.json
+
+# 单项
+& $PY tools\verify.py --only full-run-integration
+& $PY tools\verify.py --only import,audio-feedback,vfx-headless
+
+# L3 打包数据夹具（需要已导出的 pck）
+& $PY tools\verify.py --packed builds\windows\star_abyss_windows_x64\StarAbyss.pck --only export-smoke
+
+# 直接跑单个测试脚本（调试用；务必也重定向两个用户目录，否则编辑器缓存会报 ERROR）
+$env:APPDATA='D:\game\StarAbyss\.local\appdata'
+$env:LOCALAPPDATA='D:\game\StarAbyss\.local\localappdata'
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64_console.exe' --path godot --headless `
+    --fixed-fps 60 --audio-driver Dummy --script res://tests/robustness_test.gd
+```
+
+运行器行为要点：每个检查是独立引擎进程；`APPDATA` 与 `LOCALAPPDATA` 都重定向到 `.local/` 下（前者存编辑器设置，后者存编辑器文档缓存，两个都要改否则 import 会报 3 条缓存 ERROR）；任一非零退出码、或未过滤的 `SCRIPT ERROR:` / `ERROR:` / `FAIL:` 行都判失败；`--json` 输出可机器核对的汇总。
+
+### 3. 环境约束（踩过的坑，务必遵守）
+
+1. **无 pwsh 7** → 用 `py tools\verify.py`，不要用 `tools/verify.ps1`。
+2. **必须同时重定向 `APPDATA` 与 `LOCALAPPDATA`**。只改前者时，Godot 4.7 的编辑器文档缓存目录（`editor_paths.cpp:237`）取 `%LOCALAPPDATA%`，在受限环境下创建失败，会打 3 条 `ERROR` 让 `import` 恒失败（已由运行器修复）。
+3. **引擎导入/导出必须独占工程**：多个 Godot 进程同时写同一工程的 `.godot/` 导入缓存会造成访问冲突崩溃（实测退出码 `3221225477` = `0xC0000005`）。跑 `--editor --import`、导出、或改动源码后的首次导入前，用 `Get-Process *Godot*` 确认没有其他引擎进程。
+4. **图形检查独占窗口**：图形套件会真实开窗并注入键鼠；运行期间移动鼠标或切换窗口焦点会污染注入事件导致假失败（失焦还会触发游戏自动暂停）。多 Agent 共用本机时，开跑前报备、跑完立即释放。
+5. **已知无害日志**：`Failed to read the root certificate store.`、`Can't save resource to empty path`、`Error saving editor settings to` 由沙箱与重定向用户目录引起，运行器已列入忽略名单。其余错误一律算失败。
+6. 每阶段超时：普通 300 s、`import` 600 s、`full-run-integration` 与 `performance` 900 s。
+7. **打包相关运行还需 `TEMP`/`TMP`**：`verify.py` 只内置 `APPDATA`/`LOCALAPPDATA`；`--export-pack`、以及任何可能让引擎写临时文件的打包检查，请在外层把 `TEMP`/`TMP` 也指到 `.local\tmp`。否则引擎写 `%TEMP%\tmpproject.binary` 失败会把 **0 字节的 `project.binary`** 打进包（退出码仍为 0、体积也正常，极具欺骗性），装起来必崩。
+8. **不要在别人跑测试时保存脚本**：半保存/半完成的脚本会让正在运行的检查读到 `Parse Error` 并判红（实测 `actor_presentation.gd` 曾在一次图形全量中途被编辑，最后一项检查因此失败）。改完先用 `& $G --path godot --headless --check-only --script res://<file>.gd` 自查（exit 0 且无输出即可解析），再通知别人使用窗口。
+9. **PowerShell 5.1 会把原生命令的 stderr 当致命错误**：引擎只要往 stderr 打一行（连 `Failed to read the root certificate store.` 这种无害信息也算），在 `$ErrorActionPreference='Stop'` 下就会抛 `NativeCommandError` **直接终止整个脚本**（实测让一轮性能采样只跑完 1/4 且没写出 JSON）。采集脚本请把 `2>&1 | ForEach-Object { "$_" }` 归并输出，或临时把 `$ErrorActionPreference` 设为 `'Continue'`。写脚本前**先用 `[System.Management.Automation.Language.Parser]::ParseFile()` 静态查语法**，不必开窗口就能验。
+10. **窗口占用要有显式握手**：多 Agent 并发时，"我占了（从 HH:MM:SS 起 N 秒）"→"我放了"两条消息必须都发。曾发生过两个 Agent 在同一秒各自启动，导致双方读数都不可信（并且有人为腾窗口杀错了进程）。
+
+11. **PowerShell 5.1 读 UTF-8 中文文件会显示成乱码（不是文件坏了）**：`Get-Content x.json` 默认按 ANSI/GBK 解码，于是 `无人工试玩记录；…` 显示成 `鏃犱汉宸ヨ瘯鐜╄褰曪紱…`。**本环境极易因此误报"发布包元数据乱码"这类假缺陷**（我差点报了）。核验方法（按可信度排序）：① 用 `read` 工具打开；② `Get-Content -Encoding UTF8`；③ **最稳**：用 Python 以 `utf-8` 解码并**写到文件再读**——把中文直接 `print` 到 PowerShell 控制台同样会花屏（控制台代码页问题，与文件无关）。判定"文件是否真坏"的硬指标：`utf-8` 解码成功、无 `U+FFFD` 替换字符、CJK 码点数 > 0 —— **三者同时成立即文件本身正确**。
+    ⚠️ **推论（Lead 实战验证）**：**用 shell 做中文内容校验时必须显式指定 UTF-8，否则校验脚本本身会产出假阴性**——Lead 用 PowerShell `Select-String` 去核对报告里"其他 GPU…未验证"是否写了，报"出现 0 次"、`GBK 缺失`，看起来像报告漏写，实际是校验脚本被控制台代码页搞坏；改用 Python `encoding='utf-8'` 重算后三条探针全 `OK`、`U+FFFD`=0。**"断言某个中文串不存在"之前，先用一个已知存在的串做阳性对照**，否则你无法区分"真的没有"和"读不到"。
+
+### 4. 用例清单与当前结果
+
+**L1 headless（12 项，`--headless-only`；实测 501 断言、0 失败）**
+
+| 检查 | 断言数 | 覆盖 |
+| --- | --- | --- |
+| import | – | 工程可导入，资源无解析错误 |
+| main-headless | – | 配置主场景运行 120 物理步后干净释放 |
+| combat-rules | 28 | 三段/技能数值、伤害、范围角度、无敌、硬直、回血 |
+| enemy-rules | 20 | 哨兵数值、攻击名额协调、导航数据 |
+| enemy-behavior | 51 | 追击、预警先于伤害、单次命中、归巢、动态阻挡 |
+| blessing-rules | 24 | 同种子候选、唯一性、三种祝福实际效果、封顶回血 |
+| room-flow | 40 | 2/3 哨兵生成、实体门、暂停冻结、跨房保留、重开 |
+| guardian-behavior | 44 | Boss 两招数值、预警、单次命中、轮换、胜负清理 |
+| art-headless | 96 | 蒙皮/骨骼/动作轨迹/材质/碰撞保留的静态与采样校验 |
+| audio-feedback | 138 | 27 个 cue 与 manifest 双向一致、格式/时长/峰值/端点、8s 环境音循环与接缝、运行时 cue 生命周期（P7 由 54 扩到 138） |
+| vfx-headless | 21 | VFX 节点池、命中/死亡/预警表现、判定范围未变 |
+| robustness | 39 | 失焦/恢复、连续重开、重复选卡、UI 契约（QA 新增，见下） |
+
+**L2 图形（9 项，不加 `--headless-only`）**：main-window（真实窗口启动）、art-rendering（Forward+ 真实帧 + 截图）、vfx-rendering、input-physics（WASD/跳跃/闪避/镜头 + 真实鼠标事件）、combat-integration、enemy-integration、room-integration（实际 Esc/卡片点击/走门）、full-run-integration（菜单点击→2哨兵→祝福→3哨兵→祝福→Boss 350HP→胜利/失败→重开/返回菜单，连续三局）、performance（帧时间/draw call 采样）。
+
+**截图客观校验**：截图存在不等于画面正确（可能黑屏/纯色）。用 `tools/screenshot_check.py`（Pillow + numpy）做像素级统计，判据为"亮度标准差 < 3 或量化色数 < 12"即视为空白：
+
+```powershell
+& $PY tools\screenshot_check.py docs\*.png            # 批量：亮度/色数/黑屏占比 → .local\validation\screenshot_stats.json
+& $PY tools\screenshot_check.py --diff a.png b.png    # 帧间差异：mean_abs_diff / changed_pixel_fraction / identical
+```
+`--diff` 也用于"注入按键后画面真的变了"这类断言（如 L4 原生输入）。
+
+**L3 打包数据（1 项，需 `--packed`）**：export-smoke，15 项断言（含包内无测试源码、主菜单真实点击、骨骼/武器加载、移动/技能输入、Esc 暂停、重开、返回菜单、游戏帧截图）。
+
+**QA 新增补充用例**：`godot/tests/robustness_test.gd`（39 项，headless 与图形均可跑）。覆盖既有套件的空白：窗口失焦/恢复（`NOTIFICATION_APPLICATION_FOCUS_OUT` 触发暂停、重复失焦不损坏状态、失焦不打断祝福选择）、连续三次重开（含从暂停与失败状态重开、子节点不增长、只留一个 RoomController 实例）、重复点击同一张祝福卡不重复生效、过期 reward id 无法二次生效、UI 契约（菜单按钮、暂停弹窗按钮、祝福卡数量与按钮可见性规则、房间计数与目标文本）、帧处理时间预算代理（**不是 fps 结论**）。
+
+逐项断言数、失败数与耗时以 `docs/TEST_REPORT.md` 与 `.local/validation/*.json` 为准（本节不重复维护易过期的数字）。
+
+### 5. 未执行 / 不可自动验证项（如实记录）
+
+- **人工试玩**：手感、美术风格认可、动作过渡观感、音效听感、真实键鼠三局——需真人，自动化不能替代。
+- **L4 原生输入**（**已执行，RC0 冷/暖 + RC1 共 3 次 PASS**）：只能证明"画面响应 + 进程正常退出"，**不能**证明完整闭环与手感；`human_playtest_verified` 恒为 `false`。
+- **真实发布 exe 的完整闭环**：官方 release 模板禁止外部脚本注入，只能由 L2（源码）+ L3（包内数据）组合证明。
+- **其他 GPU / 音频设备 / 操作系统版本**：未验证，仅在当前机器（RTX 3050 / Vulkan / Forward+ / Windows）实测。
+
+### 6. 已知限制与判读口径（写报告/对外说明时必须一致）
+
+1. **启动与转场耗时（两个转场必须分开写）**：
+   - **进程启动 → 主菜单可见**：**约 1.8–3.3 s**（本报告探针 2.5–3.5 s / Lead `tools/startup_probe.py` 1.77–1.80 s；窗口出现约 0.3–1.9 s，差异来自采样策略）。冷启动比暖启动再慢约 0.3–0.6 s。
+   - **点击开始 → 首房首帧**（dev OPEN-01 的转场）：发布包 **暖 605 ms / 冷 1119 ms**，远低于工程内编辑器二进制实测的 3548 ms（`shader_baker` 只对导出构建生效）。
+   - 冷启动双击到可操作 ≈ **4.6 s**，暖启动 ≈ **3.2 s**。这段等待**没有加载提示**，属首发体验风险（本期不修，加 loading 属行为变更）。
+   - ⚠️ **不得**把"到主菜单"的数字说成"进 3D 场景"的数字，反之亦然——曾因此差点把两个不同转场的数据凑成"已解决"。
+2. **帧时间判读**：`run/max_fps=60` + 关闭 vsync 时 p50 ≈ 16.66–16.69 ms、**mean FPS = 60.0**；"`>16.7 ms` 的帧占比约 50%"是**帧限速器睡眠粒度抖动，不是掉帧**。有意义的是 p95 ≈ 17.1–18.0 ms、p99 ≈ 17.5–19.5 ms、偶发单帧 max 27–38 ms。
+3. **单次性能采样不足以判定回归**：同一 shader、同一内容、同一天 6 次测量得到 2.38 / 3.95 / 3.01 / 2.39 / 2.59 / 2.27 ms（会话方差主导）。曾据此误判"GPU p95 上涨 50% 是 art 着色器改动"，后被本人撤回。**任何性能结论必须给出多次采样与方差。**
+4. **渲染分辨率一律以 PNG 实际像素为准**：`root.get_texture().get_size()` 在 `stretch/mode=canvas_items` 下与真实呈现分辨率不一致；抓屏须用**客户区**（`GetClientRect`+`ClientToScreen`），整窗（含标题栏/边框）会多出约 16×39 px（实测整窗 1296×759 vs 客户区 1280×720）。
+5. 自动化连续三局**不**证明 GDD 的 5–8 分钟人工局时，也不替代人工平衡判断。
+6. **`user://` 在受限环境不可写的降级行为（已被 clean-room 验证）**：
+   ```text
+   ERROR: Could not create directory: 'user://vulkan'.
+   ERROR: Can't create shader cache folder, no shader caching will happen: user://
+   ```
+   本验证环境禁止写 `%APPDATA%` → `user://` 落不下去，于是**每次启动都相当于冷启动**（实测到的 1.8–3.3 s 到菜单 / 3.2–4.6 s 到可操作是**上界**）。**游戏的行为是优雅降级：只警告、不崩溃、能正常开跑** —— 这是健壮性上的正面结论，不要写成缺陷。
+
+---
+
+## P6 历史验收记录（2026-10-22）
 
 日期：2026-10-22（Asia/Shanghai）。用户已明确授权P6；当前完成Blender模型、蒙皮骨骼、动作时钟/方向对齐、独立武器及Toon材质。P7音效/VFX打磨、性能与Windows导出尚未开始。以下P6结果为当前验收，后面的P5–P1章节仅作历史记录。
 
@@ -287,3 +419,130 @@ P2 专项回归人工练习：打开 scenes/levels/test_arena.tscn 按 F6，检�
 - 近战采用 Hurtbox 中心的扇形/高度/视线过滤，尚非连续剑刃扫掠；尸体不保留实体碰撞。
 - 修改共享碰撞几何后需离线重烘焙；修改体素高度还需核对 NavigationAgent.path_height_offset。
 - 此条为 P3 历史边界：当时尚无房间/祝福。当前 P4 已实现上述普通房流程和阶段/失败结算；Boss、主菜单及完整胜利闭环仍未实现，未导出 Windows EXE，未验证其他 Godot/GPU/音频设备。
+
+---
+
+## P8 阶段验证层更新（2026-10-23，Lead 记录）
+
+本节补记 P8（设计落地）之后验证体系的变化。**所有数字均为实际运行结果，命令可复现。**
+
+### 当前四层 + 一层（新增）
+
+| 层 | 命令 | 规模 | 说明 |
+| --- | --- | --- | --- |
+| **L1 无头逻辑** | `py tools/verify.py --headless-only` | 13 checks / **561 断言** | 纯逻辑与资源引用，无需桌面 |
+| **L2 图形全量** | `py tools/verify.py` | 22 checks / **913 断言** | 真实窗口、真实 Forward+ 渲染、注入输入 |
+| **L3 打包审计** | `py tools/build_windows.py` | pack-audit **75** + 导出冒烟 **15** | 含「包内不含 tests/」「主场景完整」「187 资源引用可解析」 |
+| **L3 打包全量** | `py tools/verify.py --packed <pck>` | 24 checks / **1022 断言** | 以成品 `.pck` 为运行体跑全套 |
+| **OCR 渲染层（新增）** | `py tools/ocr_check.py <png> --expect "<文本>"` | 按图计 | 机械证明「该文字确实被渲染到画面上」 |
+| **L4 原生 OS 输入** | 见 `docs/QA_REPORT.md` | ×3 轮 | 对发布 exe 注入真实操作系统按键 |
+
+### OCR 渲染层的定位（重要，勿误读）
+
+`tools/ocr_check.py` 使用系统自带 `Windows.Media.Ocr`（`zh-Hans-CN`），可把截图识别成文字并与源码字面量**逐字比对**（`--expect-from-source FILE:LINE`）。
+
+- **它证明**：该字符串确实被渲染在屏幕上（不再是"这块区域有像素变化"这种弱证据）。
+- **它不证明**：可读性、排版是否溢出、手感、平衡、单局时长。
+- 因此 `human_playtest_verified` **必须保持 `false`**。理由不是"没有验证能力"，而是 OCR 只能覆盖"文字被渲染"这一层。
+- 已知偏差：OCR 会把 `·` 识为 `．`、全角／半角混用，比对时必须如实列出偏差字符，不得只贴匹配成功的部分。
+
+### 命令与环境硬约束
+
+- 运行任何 Godot / 游戏进程前，**必须**把 `APPDATA`、`LOCALAPPDATA`、`TEMP`、`TMP` 重定向到 `D:\game\StarAbyss\.local\` 下的目录。否则 Godot 无法写 `D:\game` 之外，会**静默产出 0 字节 `project.binary` 且仍返回 exit 0**。
+- **图形套件对桌面焦点敏感**：`mouse capture` 断言依赖窗口持有 OS 前台。夹具已在断言前调用 `DisplayServer.window_move_to_foreground()` 恢复该前置条件（这是真实玩家必然具备的条件，不是放宽断言）。运行 L2/L3 时不要让其他进程抢占前台，也不要同时有 Agent 在写测试文件。
+- 含中文的输出**不要用 PowerShell 重定向**（会按 GBK 编码写出并损坏 UTF-8）。用工具自带的 `--json` 落盘，或 Python 显式 `encoding='utf-8'`。
+
+### 未验证事项（必须与已验证事项分开陈述）
+
+| 项 | 状态 |
+| --- | --- |
+| 真人试玩（可读性、手感、平衡、单局时长） | **未进行**（`human_playtest_verified = false`） |
+| 真人难度分布 | **未测量**。自动化夹具是 oracle 策略（逐帧读预警、反应延迟 0），其零掉血结果**不能**代表真人 |
+| DPI 缩放 / 多显示器 / 其他 GPU 驱动 | 未覆盖，仅本机 RTX 3050 / Forward+ 验证 |
+
+### L4 原生 OS 输入：当前真实状态（2026-10-23 15:50 记录）
+
+**结论：未达成连续 3 轮 PASS，因此发布包内 `release_native_input_verified` 保持 `false`。这一项是本次交付唯一未通过的验证层。**
+
+#### 已证明的事实（可复现）
+
+| 事实 | 证据 |
+| --- | --- |
+| 发布 exe 启动并渲染真实画面 | 首发帧 0.6–2.3 s；OCR 读到主菜单、战斗房 HUD（`100 / 100`、`45 / 45` `寻敌`、`01 / 03 星辉前庭`）、暂停弹窗（`已暂停`、`继续探索`） |
+| **不存在"按键导致崩溃"缺陷** | `.local/alive_test.py`：空闲 8 s + 一次 Esc + 按住 W 1.2 s，共 20 条采样记录，进程**全程存活**、`exit_code` 恒为 null、窗口始终 `1280x720`、`leftover_processes = 0` |
+| 原生输入确实送达游戏 | 点击/Enter 使本局开始（战斗房渲染）；Esc 使暂停弹窗出现 |
+
+#### 为什么仍判为"未通过"
+
+不是游戏缺陷，是**采集环境限制**，三件事叠加：
+
+1. **截图抓的是屏幕区域，不是窗口内容**。本机同时挂载 `MuMu Virtual Display Adapter` 与 `GameViewer Virtual Display Adapter`，且 DSH GUI 窗口共享同一桌面。游戏窗口被遮挡时，截到的是别的窗口——实测"全白帧 `lum 231` / 约 700 色"就是 GUI 自身，而"彩色帧 `lum 179` / 8170 色"才是游戏。
+2. **两个验证工具都缓存窗口句柄**，遮挡/重建后继续复用旧句柄，报成 `GetClientRect failed`，看起来像"窗口失效"。
+3. **前台归属不由 guest 内进程完全决定**。`keybd_event` 只投递给当前前台窗口，而本机的串流/虚拟显示层参与决定前台，导致前台抖动；`run_manager.gd:61-63` 的失焦自动暂停（这是玩家可感的正确行为）随即把游戏暂停，按键看起来"被吞"。
+
+#### 关闭这一项所需的条件
+
+在**独占 GPU 的虚拟机**或**物理机空窗时段**上，运行：
+
+```powershell
+py tools\native_input_probe.py --out <dir>          # 热启动
+py tools\native_input_probe.py --out <dir> --clear-shader-cache   # 冷启动
+py tools\build_windows.py --verify-package builds\windows\star_abyss_1.0.0_windows_x64.zip
+py tools\build_windows.py --attest-native-input --evidence "<实测数字>" --verified-by "<who>"
+```
+
+连续 3 轮（冷/热/冷）PASS 之后才允许 attest。**在满足该条件之前，不得把 `release_native_input_verified` 置为 `true`。**
+
+#### 工具状态
+
+- `tools/native_input_probe.py`（Lead 编写）：每次截图前**重新解析窗口句柄**，绕开缓存句柄失效；未做前台强占。已能稳定产出"进入本局"与"暂停弹窗"的截图证据。
+- `tools/native_input_check.ps1`（QA/release-integrator 版）：断言前强制校验前台、未送达按键不计入分母、修掉 `trace.toggled` 恒 false 的 bug、去掉硬编码损坏的中文 user-data 路径。**该工具自身尚未被验证通过**，保留作为后续继续工作的起点。
+
+### L4 最终结论：已通过（2026-10-23 17:11，取代上文"未通过"记录）
+
+上文记录的"未通过"状态**已于本时刻关闭**，保留原文是为了留下根因排查过程。最终结果：
+
+| 轮次 | verdict | Enter 画面变化 | 按住 W 最大变化 | Esc 单次暂停 | Esc 接收率 | 焦点失败 | 键盘焦点失配 | 残留 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| r1_cold | **PASS** | 94.65% | 63.79% | 99.20%（暂停后 lum 19.5） | **100%**（2/2） | 0 | 0 | 0 |
+| r2_warm | **PASS** | 94.65% | 50.33% | 99.21%（19.7） | **100%** | 0 | 0 | 0 |
+| r3_cold | **PASS** | 94.64% | 2.68% | 99.56%（20.3） | **100%** | 0 | 0 | 0 |
+
+三轮均 `client_size=480x270`（`resolution_actual == resolution_requested`）、`exit_code=0`、
+`leftover_processes=0`、`move_in_play_pairs=9`、`move_paused_samples=0`、
+`settled_after_start_matches_room_signature=true`。证据：`.local/validation/l4_final_r{1_cold,2_warm,3_cold}/`。
+
+#### 根因：注入器发送的扫描码是 0（**不是游戏缺陷，游戏代码零改动**）
+
+`keybd_event(vk, scan, ...)` 的 `scan` 一直传 0。Godot 的 `physical_keycode` **按扫描码映射**，
+而 `release_mouse` 绑定的正是 `physical_keycode 4194305`（KEY_ESCAPE）。字母键能从 VK 对上，
+特殊键在 `scan=0` 时匹配不到 action——所以 Enter/W 一直正常、**Esc 时好时坏甚至完全无效**。
+旧观测里那些"Esc 暂停成功"多半是注入后重抢焦点触发的 `NOTIFICATION_APPLICATION_FOCUS_OUT → pause()`
+伪造出来的。改用 `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)` 后实测：**Esc `0x01` / W `0x11` / Enter `0x1c`**，
+三次"暂停→恢复"全部成立，接收率 100%。
+
+**这条排除了"游戏收不到按键"和"Esc 无法恢复"两个假设**——两者都是测试工具的缺陷。
+按"不是缺陷不处理"的原则，此判定之后未再深挖，也未改动任何游戏脚本或资源。
+
+#### 同时修正的三处验证工具缺陷（都会导致假结论）
+
+1. `Process.MainWindowHandle` 会返回该进程 3 个顶层窗口中的退化窗口（`0×0`）→ 改成每次
+   `EnumWindows` 枚举取客户区最大者，不再缓存句柄。这是 `GetClientRect failed` 与全黑帧的真因。
+2. `BitBlt(GetDC(hwnd))` / `PrintWindow` 对 Vulkan 窗口只返回纯色（实测 `colours=1`）→
+   必须用屏幕区域拷贝；"抓被遮挡窗口内容"这条路在本作上不可行。
+3. `lum < 40` 判暂停在小窗口下失效（同一暂停面板 1280×720 下 `lum≈20`，480×270 下 `lum≈110–152`）
+   → 改用游戏自身的鼠标捕获标志（`GetCursorInfo` 可见性）作为暂停态判据。
+
+#### 交付物（attest 后）
+
+```
+zip  42,098,870 B  sha256 6cf5aeec6bf62c84399fcb756f775ab241ebe4020209bf27a36a3f1e96e84ae0
+pck   3,170,124 B  sha256 737ff5148cdc52e8277923f6edf45cbce59cc7024cb015112a5e630b927ed729
+exe 109,268,480 B  sha256 d34d36f3be1a6c49c56525ae86469b92e4f417ddf0b43cf00dd80c385c4b0562
+```
+`exe` 与 `pck` 在 attest 前后**字节完全一致**，zip 仅因 `BUILD_INFO.json` 增加证据字段而变化。
+干净目录复验：解压到 `.local/export-diagnostics/cleanroom/` → 6 个哈希与 `SHA256SUMS.txt` 一致 →
+干净启动 exit 0（Forward+ / RTX 3050）。
+
+**`human_playtest_verified` 仍为 `false`**：本次 L4 证明的是"真实 OS 按键能驱动发布 exe"，
+不证明可读性、手感、平衡与单局时长。

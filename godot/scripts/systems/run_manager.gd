@@ -20,6 +20,9 @@ var rooms_cleared: int = 0
 var kills: int = 0
 var elapsed: float = 0.0
 var room: RoomController
+## Human-readable cause of the killing blow, filled once on death (GAMEPLAY_DESIGN G-07).
+## Kept as a plain string so it never leaks into DamageInfo or the combat rules.
+var last_hit_summary: String = ""
 var _resume_state: State = State.COMBAT
 var _last_clock_second: int = -1
 @onready var player: PlayerController = $Player
@@ -162,9 +165,26 @@ func _advance_room() -> void:
 	_load_room()
 
 
-func _on_player_died(_info: DamageInfo) -> void:
+func _on_player_died(info: DamageInfo) -> void:
+	last_hit_summary = describe_damage_source(info)
 	if current_state not in [State.FAILED, State.WON]:
 		_set_state(State.FAILED)
+
+
+## Reverse lookup from the attacker the hit came from; DamageInfo itself stays untouched.
+## Sentinel and guardian both expose settings.display_name ("遗迹哨兵" / "晶核守卫") and the
+## attack Resource that is currently resolving ("哨兵横扫" / "重锤横扫" / "晶能冲击"),
+## so no display text is duplicated here.
+func describe_damage_source(info: DamageInfo) -> String:
+	if info == null:
+		return "未知来源"
+	var attacker: SentinelController = info.source as SentinelController
+	if attacker == null or not is_instance_valid(attacker):
+		return "未知来源"
+	var attacker_name: String = attacker.brain.settings.display_name
+	var move_name: String = attacker.brain.get_attack_definition().display_name
+	var damage: int = int(round(info.base_damage * info.attack_multiplier))
+	return "%s · %s（%d 伤害）" % [attacker_name, move_name, damage]
 
 
 func _on_boss_defeated(info: DamageInfo) -> void:

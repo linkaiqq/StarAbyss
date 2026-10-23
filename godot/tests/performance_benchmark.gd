@@ -132,7 +132,14 @@ func _test() -> void:
 	current_scene.queue_free()
 	current_scene = null
 	paused = false
-	await create_timer(0.25).timeout
+	# Wall-clock wait, not SceneTreeTimer: under `--fixed-fps 60 --max-fps 0` a timer's
+	# simulated 0.25 s can elapse in a couple of milliseconds of real time, which is not
+	# long enough for the audio server to release finished playbacks. Every other fixture
+	# waits on Time.get_ticks_msec() for the same reason, otherwise the process exits with
+	# "resources still in use" and the check fails on an engine error line.
+	var deadline: int = Time.get_ticks_msec() + 250
+	while Time.get_ticks_msec() < deadline:
+		await process_frame
 	print("PERFORMANCE RESULT: %d checks, %d failures" % [_checks, _failures])
 	quit(0 if _failures == 0 else 1)
 

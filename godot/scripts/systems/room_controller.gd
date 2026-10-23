@@ -36,7 +36,7 @@ func _ready() -> void:
 		boss.position = definition.boss_spawn
 		$Enemies.add_child(boss)
 		boss.health.died.connect(_on_boss_died)
-		gate.caption.text = "晶核封印 · 击败晶核守卫"
+		gate.caption.text = "晶核封印 · 旧誓仍守此门"
 		return
 	if definition.boss_staging:
 		gate.caption.text = "晶核封印 · 本次试炼终点"
@@ -74,5 +74,5 @@ func _on_boss_died(info: DamageInfo) -> void:
 	if not is_cleared:
 		is_cleared = true
 		gate.set_open(true)
-		gate.caption.text = "晶核已稳定 · 试炼完成"
+		gate.caption.text = "晶核已稳定 · 黎明已至"
 		boss_defeated.emit(info)

@@ -32,7 +32,16 @@ func _test() -> void:
 	var player: PlayerController = run.player
 	player.camera_controller.set_process_unhandled_input(false)
 	_check(run.room.get_living_enemy_count() == 2 and player.health.current_health == 100, "pack starts with correct enemies and player health")
-	var presentation: ActorPresentation = player.get_node("Visual/ActorPresentation") as ActorPresentation
+	# Fail fast: if the pack carries a script that does not parse (a package built while a
+	# source file was mid-edit), the presentation node keeps existing but loses its script.
+	# Without this guard the coroutine dies on the nil access below and the process never
+	# reaches quit(), so the run hangs until the harness timeout instead of failing.
+	var presentation: ActorPresentation = player.get_node_or_null("Visual/ActorPresentation") as ActorPresentation
+	if presentation == null:
+		_check(false, "packed-data runtime loads a parseable ActorPresentation script")
+		print("EXPORT SMOKE RESULT: %d checks, %d failures" % [_checks, _failures])
+		quit(1)
+		return
 	_check(presentation.skeleton != null and presentation.weapon_attachment.get_child_count() == 1, "pack loads imported skeleton and independent weapon")
 	_check(Input.mouse_mode == Input.MOUSE_MODE_CAPTURED, "packed-data game window captures input")
 	var before_move: Vector3 = player.position

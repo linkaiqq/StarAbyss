@@ -1,9 +1,9 @@
-; Star Abyss / 星渊遗迹 — P7 release candidate
+; Star Abyss / 星渊遗迹 — 1.0.0 release
 config_version=5
 
 [application]
 config/name="Star Abyss — 星渊遗迹"
-config/version="0.1.0-rc1"
+config/version="1.0.0"
 run/main_scene="res://scenes/ui/main_menu.tscn"
 run/max_fps=60
 config/features=PackedStringArray("4.7", "Forward Plus")

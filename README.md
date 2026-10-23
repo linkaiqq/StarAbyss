@@ -1,10 +1,21 @@
 # Star Abyss / 星渊遗迹
 
-Godot 4 第三人称 3D 动作 Roguelite 的 **P6 美术替换工程**。探索者、遗迹哨兵、晶核守卫与遗迹环境已使用本项目 Blender 资产，接入骨骼动画、独立武器和 Godot Toon 材质。保留主菜单、三房战斗、祝福、胜负与重开闭环。策划基线为 [GDD v1.0](docs/Star_Abyss_GDD_v1.0.md)，进度见 [TASKS.md](docs/TASKS.md)。美术观感与实体键鼠体验待人工验收，P7 打磨发布尚未授权。
+Godot 4 第三人称 3D 动作 Roguelite 的 **P7 打磨发布工程**（发布版本 `1.0.0`）。探索者、遗迹哨兵、晶核守卫与遗迹环境已使用本项目 Blender 资产，接入骨骼动画、独立武器和 Godot Toon 材质。保留主菜单、三房战斗、祝福、胜负与重开闭环。策划基线为 [GDD v1.0](docs/Star_Abyss_GDD_v1.0.md)，进度见 [TASKS.md](docs/TASKS.md)。Windows x64 导出与发布流程见 [docs/BUILD_WINDOWS.md](docs/BUILD_WINDOWS.md)；美术观感与实体键鼠体验待人工验收。
+
+## 试玩包（无需安装 Godot）
+
+发布 zip：`builds\windows\star_abyss_1.0.0_windows_x64.zip`（40,913,090 B，sha256 `dd9dda5e…6ea6`）。
+
+1. **解压**到任意目录（不要在压缩包里直接双击运行）。
+2. 进入解压出的 `star_abyss_windows_x64/` 目录，双击 **`StarAbyss.exe`**。
+3. **`StarAbyss.exe` 与 `StarAbyss.pck 必须留在同一目录`**：游戏数据全在 pck 里，只复制 exe 会弹出 `ALERT!` 对话框且无法启动。
+4. 需要 Forward+（Vulkan）显卡；本版本未做代码签名，首次运行可能触发 SmartScreen 提示。
+
+游戏内容是否变化只看 `StarAbyss.pck` 的 sha256——`embed_pck=false` 时 `StarAbyss.exe` 就是官方 release 模板的逐字节复制，它的哈希只反映引擎版本。完整说明、校验方法与已知限制见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 启动
 
-已验证环境：Windows、Godot **4.7 stable**、Forward+ / Vulkan、NVIDIA GTX 1660 SUPER。使用 GDScript，无第三方插件、无全局单例，无外部美术资源依赖。其他 Godot 4.x 版本尚未验证。
+已验证环境：Windows x64、Godot **4.7.2 stable**（`4.7.2.stable.official.ed1daf0bf`）、Forward+ / Vulkan、NVIDIA GeForce **RTX 3050**。使用 GDScript，无第三方插件、无全局单例，无外部美术资源依赖。其他 Godot 4.x 版本尚未验证。
 
 1. 在 Godot 项目管理器导入 `godot/project.godot`。
 2. 打开工程，按 **F5** 进入主菜单，点击“开始本局”。先后完成遗迹前庭、星辉回廊和晶核封印。
@@ -13,9 +24,9 @@ Godot 4 第三人称 3D 动作 Roguelite 的 **P6 美术替换工程**。探索�
 本机 PowerShell 启动命令（其他机器替换引擎路径）：
 
 ```powershell
-& 'E:\share\Godot_v4.7\Godot_v4.7-stable_win64.exe' --editor --path 'D:\AiProject\StarAbyss\godot'
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64.exe' --editor --path 'D:\game\StarAbyss\godot'
 # 直接运行主场景
-& 'E:\share\Godot_v4.7\Godot_v4.7-stable_win64.exe' --path 'D:\AiProject\StarAbyss\godot'
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64.exe' --path 'D:\game\StarAbyss\godot'
 ```
 
 | 操作 | 按键 |
@@ -95,32 +106,41 @@ tools/                    验收脚本
 
 ## 验证
 
-在项目根目录使用 **PowerShell 7**：
+本机只有 Windows PowerShell 5.1，**没有 PowerShell 7**，因此 `tools/verify.ps1`（`#Requires -Version 7.0`）无法执行。请改用等价的 Python 版本，在项目根目录运行：
 
 ```powershell
-pwsh -File .\tools\verify.ps1
-# 自定义引擎路径
-pwsh -File .\tools\verify.ps1 -GodotPath 'C:\Tools\Godot\Godot_console.exe'
-# 没有图形桌面时，检查引用、导入、主场景与战斗规则
-pwsh -File .\tools\verify.ps1 -HeadlessOnly
+py tools\verify.py                      # 全量（含图形：真实窗口、注入输入、真实物理、Forward+ 渲染）
+py tools\verify.py --headless-only      # 无图形桌面时：引用校验、导入、主场景与各 headless 套件
+py tools\verify.py --only combat-rules,art-headless
+py tools\verify.py --json .local\validation\summary.json
 ```
 
-完整验收覆盖 **544 项不同断言**：原 P1–P5 的447项与新增97项美术检查。美术 headless 执行其中96项，图形模式复验这96项并增加真实帧检查，不重复计数。检查覆盖蒙皮/骨骼、静止根骨、实际武器几何朝向、动作时长/轨迹、Hit Stop/暂停/死亡同步及环境碰撞保留。完整闭环图形测试仍从菜单实际点击开始，连续三局真实战斗、选卡、走门和Boss致胜，另验重开/菜单/失败；不修改实战数值。
+自定义引擎路径用 `--godot` 或环境变量 `STARABYSS_GODOT`。`tools/verify.ps1` 保留为历史记录，本机不可用。
+
+对**最终导出的 PCK** 做外部夹具验收（包内数据是否完整可玩：菜单 → 进房 → 骨骼/武器 → 移动/技能 → Esc 暂停 → 重开 → 返回菜单）。官方 release 模板禁用了 `--main-pack`/`--script` 路径覆盖，所以用同版本编辑器的游戏运行模式加载最终包，不加 `--editor`、不加源码 `--path`：
+
+```powershell
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64_console.exe' --main-pack 'builds\windows\star_abyss_windows_x64\StarAbyss.pck' --fixed-fps 60 --max-fps 0 --disable-vsync --audio-driver Dummy --script 'godot\tests\export_smoke_test.gd'
+```
+
+成功标志为 `EXPORT SMOKE RESULT: N checks, 0 failures`，退出码 0；测试脚本不进入包内。该夹具由 `py tools\build_windows.py` 自动执行，构建与验收细节见 [docs/BUILD_WINDOWS.md](docs/BUILD_WINDOWS.md)。
+
+断言数以 [docs/TEST_REPORT.md](docs/TEST_REPORT.md) 的记录为准。当前实测（2026-10-23，QA 图形全量）：**21 项检查、872 项断言、0 项断言失败**，明细见 `docs/TEST_REPORT.md`。本文件早先写的“544 项”是 P6 阶段的数字，已不适用，请勿引用；也不要把 headless 与图形层的断言相加后当成“唯一断言数”，两层会复验同一批断言。
 
 修改共享场地实体几何后，需重烘焙导航并重新验收：
 
 ```powershell
-& 'E:\share\Godot_v4.7\Godot_v4.7-stable_win64_console.exe' --headless --path 'D:\AiProject\StarAbyss\godot' --script '../tools/bake_navigation.gd'
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'D:\game\StarAbyss\godot' --script '../tools/bake_navigation.gd'
 # Boss 使用更大的导航半径，几何修改后也需重烘焙
-& 'E:\share\Godot_v4.7\Godot_v4.7-stable_win64_console.exe' --headless --path 'D:\AiProject\StarAbyss\godot' --script '../tools/bake_navigation.gd' -- --guardian
-pwsh -File .\tools\verify.ps1
+& 'D:\game\apps\godot\Godot_v4.7.2-stable_win64_console.exe' --headless --path 'D:\game\StarAbyss\godot' --script '../tools/bake_navigation.gd' -- --guardian
+py tools\verify.py
 ```
 
 烘焙仅解析 World 静态碰撞体，两份网格当前各 62 个多边形；哨兵半径/高度为 0.5/1.75，Boss 为 0.75/2.75。修改体素高度时还需检查 NavigationAgent 的 `path_height_offset`（当前 0.5 m），保持路径与角色脚底一致。运行游戏无需再烘焙。
 
 完整验收会打开普通主场景，再在窗口中注入输入和执行真实物理步进，生成 P2/P3/P4 预览。集成测试关闭持续绘制，并对截图显式调用 Forward+ 绘制；不代表性能基准。P4 检查 1280×720 与 1920×1080。运行期间请不要操作窗口或移动鼠标。日志在 `.local/validation/`；任一脚本、资源或引擎错误均导致失败。headless 无法代替窗口输入与渲染验收。
 
-测试进程单独将 APPDATA 定向至项目内 `.local/appdata/`，避免改写已有 Godot 编辑器设置；正常手动启动不受影响。受限沙箱可能禁止读取 Windows 证书库，应在允许系统访问的环境执行验收。
+`tools/verify.py` 为测试隔离把 `APPDATA`/`LOCALAPPDATA` 定向到项目内 `.local/`；`tools/build_windows.py` 同样把 `APPDATA`/`LOCALAPPDATA`/`TEMP`/`TMP` 全部定向到 `.local/`——本验证环境禁止引擎写工作区外的路径，不重定向 `TEMP` 会导致导出的包内 `project.binary` 为 0 字节（包不可启动，但导出仍返回 0）。因为 `APPDATA` 被重定向，Godot 自己的标准模板路径 `<APPDATA>/Godot/export_templates/4.7.2.stable/` 物理上落在 `.local/appdata/` 内，所以 `export_presets.cfg` 的 `custom_template/debug`、`custom_template/release` **都留空**，走引擎原生查找。受限沙箱可能禁止读取 Windows 证书库，应在允许系统访问的环境执行验收。
 
 人工步骤和验证边界见 [docs/TESTING.md](docs/TESTING.md)，技术架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，环境记录见 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
 

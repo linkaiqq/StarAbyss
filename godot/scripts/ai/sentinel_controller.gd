@@ -4,6 +4,19 @@ extends CharacterBody3D
 
 var _gravity: float = 18.0
 var _corpse_elapsed: float = 0.0
+## Display-only translation of the FSM state name (STORY_BIBLE §10.6 row 1). EnemyBrain keeps
+## returning the English names: state_changed listeners and several tests depend on them, so
+## only the floating label above the sentinel is localised here.
+const STATE_LABELS: Dictionary = {
+	"Idle": "巡守",
+	"Chase": "寻敌",
+	"Telegraph": "蓄势",
+	"Attack": "出击",
+	"Recover": "收势",
+	"Return": "归位",
+	"Hurt": "受创",
+	"Dead": "已毁",
+}
 @onready var brain: EnemyBrain = $EnemyBrain
 @onready var health: HealthComponent = $Health
 @onready var feedback: CombatFeedback = $Feedback
@@ -44,7 +57,9 @@ func _physics_process(delta: float) -> void:
 	var previous: Vector3 = global_position
 	move_and_slide()
 	brain.report_motion(Vector2(global_position.x - previous.x, global_position.z - previous.z).length(), delta)
-	status_label.text = "%s\n%d / %d · %s" % [brain.settings.display_name, health.current_health, health.max_health, brain.get_state_name()]
+	var state_english: String = brain.get_state_name()
+	var state_label: String = STATE_LABELS.get(state_english, state_english)
+	status_label.text = "%s\n%d / %d · %s" % [brain.settings.display_name, health.current_health, health.max_health, state_label]
 	if not health.is_alive():
 		_corpse_elapsed += delta
 		if _corpse_elapsed >= brain.settings.corpse_duration:

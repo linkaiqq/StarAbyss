@@ -14,6 +14,12 @@ var _stats: Label
 var _collection: Label
 var _skill: Label
 var _dodge: Label
+var _dodge_confirm: Label
+var _dodge_confirm_timer: Timer
+var _onboarding: Label
+var _onboarding_timer: Timer
+var _shown_combat_hint: bool = false
+var _shown_heavy_hit_hint: bool = false
 var _scrim: ColorRect
 var _modal: VBoxContainer
 var _card_row: HBoxContainer
@@ -39,6 +45,8 @@ func bind_run(run: RunManager) -> void:
 	run.blessings.collection_changed.connect(_on_collection_changed)
 	run.blessings.candidates_offered.connect(_on_candidates)
 	run.player.health.health_changed.connect(_on_health_changed)
+	run.player.health.blocked.connect(_on_player_blocked)
+	run.player.health.damaged.connect(_on_player_damaged)
 	run.player.telemetry_updated.connect(_on_telemetry)
 	run.boss_health_changed.connect(_on_boss_health_changed)
 	run.boss_action_changed.connect(_on_boss_action_changed)
@@ -71,7 +79,19 @@ func _build() -> void:
 	_room = _label(room_rows, "", 27, INK)
 	_room.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_objective = _label(room_rows, "", 20, CYAN)
+	_objective.name = "ObjectiveText"
 	_objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# ONB-2/ONB-3 hints live in their own label. _objective is never rewritten: its text is
+	# locked by robustness_test.gd ("存活哨兵  2 / 2"), so onboarding must not touch it.
+	_onboarding = _label(room_rows, "", 18, MUTED)
+	_onboarding.name = "OnboardingHint"
+	_onboarding.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_onboarding.visible = false
+	_onboarding_timer = Timer.new()
+	_onboarding_timer.name = "OnboardingHintTimer"
+	_onboarding_timer.one_shot = true
+	add_child(_onboarding_timer)
+	_onboarding_timer.timeout.connect(_on_onboarding_elapsed)
 	_boss_panel = _panel(screen, Vector2(-380, 166), Vector2(760, 126))
 	_boss_panel.name = "BossPanel"
 	_boss_panel.anchor_left = 0.5
@@ -99,7 +119,7 @@ func _build() -> void:
 	var collection_rows: VBoxContainer = _rows(collection_panel)
 	_collection = _label(collection_rows, "", 21, INK)
 	_stats = _label(collection_rows, "", 17, MUTED)
-	_label(collection_rows, "WASD 移动  ·  左键剑击  ·  Space 跳跃  ·  鼠标转镜头", 17, MUTED)
+	_label(collection_rows, "WASD 移动  ·  左键剑击  ·  E 星刃斩  ·  Shift 闪避  ·  Space 跳跃  ·  鼠标转镜头", 17, MUTED)
 	var skills: PanelContainer = _panel(screen, Vector2(-400, -158), Vector2(364, 122))
 	skills.anchor_left = 1.0
 	skills.anchor_right = 1.0
@@ -109,6 +129,22 @@ func _build() -> void:
 	_skill = _label(skill_rows, "", 24, CYAN)
 	_dodge = _label(skill_rows, "", 24, INK)
 	_label(skill_rows, "留意橙色预警，红色区域生效", 17, MUTED)
+	_dodge_confirm = _label(screen, "", 26, CYAN)
+	_dodge_confirm.name = "DodgeConfirm"
+	_dodge_confirm.position = Vector2(-400, -204)
+	_dodge_confirm.size = Vector2(364, 38)
+	_dodge_confirm.anchor_left = 1.0
+	_dodge_confirm.anchor_right = 1.0
+	_dodge_confirm.anchor_top = 1.0
+	_dodge_confirm.anchor_bottom = 1.0
+	_dodge_confirm.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_dodge_confirm.visible = false
+	_dodge_confirm_timer = Timer.new()
+	_dodge_confirm_timer.name = "DodgeConfirmTimer"
+	_dodge_confirm_timer.one_shot = true
+	_dodge_confirm_timer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_dodge_confirm_timer)
+	_dodge_confirm_timer.timeout.connect(_on_dodge_confirm_elapsed)
 	_scrim = ColorRect.new()
 	_scrim.name = "ModalOverlay"
 	_scrim.color = Color(0.015, 0.035, 0.065, 0.94)
@@ -124,8 +160,10 @@ func _build() -> void:
 	var brand: Label = _label(_modal, "S T A R   A B Y S S   /   星 渊 遗 迹", 19, CYAN)
 	brand.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title = _label(_modal, "", 52, INK)
+	_title.name = "ModalTitle"
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_subtitle = _label(_modal, "", 23, MUTED)
+	_subtitle.name = "ModalSubtitle"
 	_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card_row = HBoxContainer.new()
 	_card_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -165,16 +203,24 @@ func _on_state_changed(state: RunManager.State) -> void:
 	_audio_toggle.visible = not choosing
 	_audio_toggle.set_pressed_no_signal(AudioServer.is_bus_mute(0))
 	match state:
+		RunManager.State.COMBAT:
+			# ONB-2: once per run, on the first live combat, spell out what a dodge actually is.
+			if not _shown_combat_hint:
+				_shown_combat_hint = true
+				_show_onboarding("Shift 闪避 0.45 秒 · 无敌只有 0.10–0.30 秒 · 冷却 1.2 秒", 6.0)
 		RunManager.State.CHOOSING:
 			_title.text = "选择你的祝福"
 			_subtitle.text = "第 %d 房已清除 · 战斗已暂停 · 选择后穿过出口继续" % (_run.room_index + 1)
+			# ONB-4: answer "第 3 个祝福去哪了" before it is asked (first pick of the run).
+			if _run.blessings.acquired.is_empty():
+				_subtitle.text += "\n本局祝福只能选 2 次（这是第 1 次）"
 		RunManager.State.PAUSED:
 			_title.text = "探索已暂停"
 			_subtitle.text = "战斗、冷却与本局计时已冻结"
 			_resume.grab_focus()
 		RunManager.State.FAILED:
 			_title.text = "探索者已倒下"
-			_subtitle.text = "本次试炼结束 · 重新开始将清空生命、祝福与房间进度"
+			_subtitle.text = _failed_cause_text()
 			_restart.grab_focus()
 		RunManager.State.STAGE_COMPLETE:
 			_title.text = "抵达晶核封印"
@@ -182,9 +228,22 @@ func _on_state_changed(state: RunManager.State) -> void:
 			_restart.grab_focus()
 		RunManager.State.WON:
 			_title.text = "晶核已稳定"
-			_subtitle.text = "试炼胜利 · 你击败了晶核守卫，暂时平息了遗迹的侵蚀"
+			_subtitle.text = "结界在黎明时分平息了遗迹的侵蚀。"
 			_restart.grab_focus()
 	_on_progress_changed()
+
+
+## Failure attribution (GAMEPLAY_DESIGN §5.8 G-07): which move, how much health was left and
+## how far the run got. The cause string is produced by RunManager from the existing
+## DamageInfo + the attacker's own Resource names, so the UI adds no new coupling.
+func _failed_cause_text() -> String:
+	var progress: String = "倒在第 %d 房 / 共 %d 房 · 剩余生命 %d / %d" % [
+		_run.room_index + 1, _run.rooms.size(),
+		_run.player.health.current_health, _run.player.health.max_health]
+	var closing: String = "黎明未至 · 再入星渊，皆从头。"
+	if _run.last_hit_summary.is_empty():
+		return "%s\n%s" % [closing, progress]
+	return "%s\n最后一击：%s\n%s" % [closing, _run.last_hit_summary, progress]
 
 
 func _on_candidates(candidates: Array[BlessingDefinition]) -> void:
@@ -225,7 +284,7 @@ func _on_progress_changed() -> void:
 	_room.text = "%02d / 03    %s" % [_run.room_index + 1, _run.rooms[_run.room_index].display_name]
 	_boss_panel.visible = _run.room.definition.boss_room
 	if _run.room.definition.boss_room:
-		_objective.text = "晶核已稳定 · 试炼胜利" if _run.room.is_cleared else "击败晶核守卫 · 留意扇形与圆形预警"
+		_objective.text = "晶核已稳定 · 黎明已至" if _run.room.is_cleared else "直面晶核守卫 · 留意扇形与圆形预警"
 	elif _run.room.definition.boss_staging:
 		_objective.text = "晶核封印 · 普通试炼完成"
 	elif _run.room.is_cleared:
@@ -259,6 +318,40 @@ func _on_health_changed(current: int, maximum: int) -> void:
 	_health.text = "生命   %d / %d" % [current, maximum]
 	_health_bar.max_value = maximum
 	_health_bar.value = current
+
+
+func _on_player_damaged(amount: int, _info: DamageInfo) -> void:
+	# ONB-3: only a Boss-grade hit (20+) earns the colour-legend hint, and only once.
+	# Colours are read from the shipped scene, not invented: sentinel.tscn:84-85 gives
+	# warning_color = Color(1, 0.45, 0.05) (orange) and active_color = Color(1, 0.12, 0.03) (red),
+	# and core_guardian.tscn inherits that scene.
+	if amount < 20 or _shown_heavy_hit_hint:
+		return
+	_shown_heavy_hit_hint = true
+	_show_onboarding("橙色是预警 · 红色才生效 · 走出红区可免伤", 6.0)
+
+
+func _show_onboarding(text: String, seconds: float) -> void:
+	_onboarding.text = text
+	_onboarding.visible = true
+	_onboarding_timer.start(seconds)
+
+
+func _on_onboarding_elapsed() -> void:
+	_onboarding.visible = false
+
+
+func _on_player_blocked(_info: DamageInfo) -> void:
+	# Only a deliberate dodge i-frame counts as "perfect"; post-hit protection is not a dodge.
+	if not _run.player.health.has_invulnerability_reason(&"dodge"):
+		return
+	_dodge_confirm.text = "完美闪避"
+	_dodge_confirm.visible = true
+	_dodge_confirm_timer.start(0.6)
+
+
+func _on_dodge_confirm_elapsed() -> void:
+	_dodge_confirm.visible = false
 
 
 func _on_telemetry(_state: String, _speed: float, cooldown: float) -> void:

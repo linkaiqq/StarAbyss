@@ -7,6 +7,10 @@ extends Node3D
 @export var weapon_bone: StringName = &"WeaponSocket"
 @export var weapon_rotation_degrees: Vector3 = Vector3.ZERO
 @export var actor_path: NodePath = NodePath("../..")
+## P7: drive the cel shader's per-instance charge-up glow from the enemy windup clock.
+@export var threat_pulse_enabled: bool = true
+## Flicker cycles the warning glow goes through across one windup.
+@export var threat_flicker_cycles: float = 4.0
 
 var model: Node3D
 var skeleton: Skeleton3D
@@ -20,6 +24,8 @@ var _health: HealthComponent
 var _feedback: CombatFeedback
 var _player: PlayerController
 var _enemy: SentinelController
+var _threat_meshes: Array[MeshInstance3D] = []
+var _threat_value: float = -1.0
 
 
 func _ready() -> void:
@@ -55,6 +61,7 @@ func _ready() -> void:
 	weapon.basis = rest_basis.inverse() * Basis.from_euler(offset)
 	weapon_attachment.add_child(weapon)
 	ToonPalette.apply_to(model)
+	_cache_threat_meshes()
 	_health.died.connect(_on_died)
 	_sample(&"Idle", 0.0, true)
 
@@ -102,6 +109,7 @@ func _sample_player(delta: float) -> void:
 
 func _sample_enemy(delta: float) -> void:
 	var brain: EnemyBrain = _enemy.brain
+	_update_threat(brain)
 	if brain.current_state in [EnemyBrain.State.TELEGRAPH, EnemyBrain.State.ATTACK, EnemyBrain.State.RECOVER]:
 		var clip: StringName = &"Attack"
 		if brain is GuardianBrain:
@@ -134,7 +142,44 @@ func _sample(clip: StringName, value: float, absolute_time: bool = false) -> voi
 	animation_player.seek(sampled_time, true)
 
 
+## Collects only the imported body meshes that carry a cel ShaderMaterial, so the
+## per-instance charge glow never touches the weapon or arena geometry.
+func _cache_threat_meshes() -> void:
+	_threat_meshes.clear()
+	for child: Node in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance: MeshInstance3D = child as MeshInstance3D
+		if mesh_instance.mesh != null:
+			_threat_meshes.append(mesh_instance)
+
+
+## Maps the enemy's authoritative windup clock onto a 0..1 charge glow. This is a
+## pure read: it never writes brain state, timings or the damage window.
+func _update_threat(brain: EnemyBrain) -> void:
+	if not threat_pulse_enabled or _threat_meshes.is_empty():
+		return
+	var value: float = 0.0
+	if brain.current_state == EnemyBrain.State.TELEGRAPH:
+		var attack: AttackDefinition = brain.get_attack_definition()
+		if attack != null:
+			var windup: float = maxf(attack.hit_start, 0.001)
+			var progress: float = clampf(brain.action_elapsed / windup, 0.0, 1.0)
+			# The flicker phase accelerates with progress, so the body pulses faster
+			# and faster like a countdown instead of a steady throb.
+			var beat: float = 0.5 + 0.5 * sin(progress * progress * TAU * threat_flicker_cycles)
+			value = clampf(progress * (0.45 + 0.55 * beat), 0.0, 1.0)
+	_apply_threat(value)
+
+
+func _apply_threat(value: float) -> void:
+	if is_equal_approx(value, _threat_value):
+		return
+	_threat_value = value
+	for mesh_instance: MeshInstance3D in _threat_meshes:
+		mesh_instance.set_instance_shader_parameter(&"threat_pulse", value)
+
+
 func _on_died(_info: DamageInfo) -> void:
 	# Health signals precede run settlement, so the result panel never retains an
 	# attack pose even when SceneTree.pause is set in the same damage callback.
+	_apply_threat(0.0)
 	_sample(&"Death", 0.0, true)

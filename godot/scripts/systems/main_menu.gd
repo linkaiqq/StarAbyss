@@ -3,11 +3,18 @@ extends Control
 ## Title view and a scene transition. No run data survives outside the run scene.
 
 var _starting: bool = false
+var _audio: AudioStreamPlayer
 
 
 func _ready() -> void:
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# P7: menu feedback only. Created in code so the menu scene file is untouched.
+	_audio = AudioStreamPlayer.new()
+	_audio.name = "MenuAudio"
+	_audio.bus = &"UI"
+	_audio.volume_db = -4.0
+	add_child(_audio)
 	var background: ColorRect = ColorRect.new()
 	background.color = Color("081520")
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -35,7 +42,7 @@ func _ready() -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rows.add_child(spacer)
 	_label(rows, "星渊遗迹", 96, Color("e3eef4"))
-	_label(rows, "深入遗迹，收集祝福，挑战晶核守卫。", 28, Color("a5bccb"))
+	_label(rows, "黎明之前，重封晶核；孤身入渊，与旧誓一战。", 28, Color("a5bccb"))
 	_label(rows, "两间哨兵试炼  /  两次祝福选择  /  一场晶核决战", 21, Color("7196a9"))
 	var start: Button = _button(rows, "开始本局", start_game)
 	start.name = "StartRun"
@@ -47,6 +54,8 @@ func _ready() -> void:
 	mute.button_pressed = AudioServer.is_bus_mute(0)
 	mute.add_theme_font_size_override("font_size", 22)
 	mute.toggled.connect(func(muted: bool) -> void: AudioServer.set_bus_mute(0, muted))
+	mute.toggled.connect(func(_muted: bool) -> void: _play_menu_cue(&"ui_confirm"))
+	mute.mouse_entered.connect(func() -> void: _play_menu_cue(&"ui_hover"))
 	rows.add_child(mute)
 	var lower_spacer: Control = Control.new()
 	lower_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -63,6 +72,19 @@ func start_game() -> void:
 	if error != OK:
 		_starting = false
 		push_error("Failed to start run: " + error_string(error))
+
+
+## P7 menu feedback. Purely additive: no menu state, layout or flow is touched.
+func _play_menu_cue(cue: StringName) -> void:
+	if not is_instance_valid(_audio):
+		return
+	var stream: AudioStreamWAV = AudioCues.get_cue(cue)
+	if stream == null:
+		return
+	_audio.stop()
+	_audio.stream = stream
+	_audio.volume_db = -4.0 + AudioCues.get_gain(cue)
+	_audio.play()
 
 
 func _quit_game() -> void:
@@ -94,6 +116,8 @@ func _button(parent: Node, text: String, action: Callable) -> Button:
 	hover.bg_color = Color("256170")
 	hover.border_color = Color("6ee8d2")
 	button.add_theme_stylebox_override("hover", hover)
+	button.mouse_entered.connect(func() -> void: _play_menu_cue(&"ui_hover"))
+	button.pressed.connect(func() -> void: _play_menu_cue(&"ui_confirm"))
 	button.pressed.connect(action)
 	parent.add_child(button)
 	return button

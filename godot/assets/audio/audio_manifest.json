@@ -5,131 +5,271 @@
   "cues": {
     "swing_01": {
       "duration_seconds": 0.2,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.1469434635651821,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1469,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "swing_02": {
       "duration_seconds": 0.24,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.15869603131811189,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1587,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "swing_03": {
       "duration_seconds": 0.31,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.15119427790234563,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1512,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "skill": {
       "duration_seconds": 0.49,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.09652071254228303,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0965,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "dodge": {
       "duration_seconds": 0.24,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.1552295402484555,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1552,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "impact": {
       "duration_seconds": 0.18,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.0718895044974404,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0719,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "hurt": {
       "duration_seconds": 0.24,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.07073397328803954,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0707,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "sentinel_warning": {
       "duration_seconds": 0.18,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.15189203027661943,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1519,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "guardian_sweep_warning": {
       "duration_seconds": 0.26,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.14426394823133065,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1443,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "guardian_shock_warning": {
       "duration_seconds": 0.34,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.14050200168447433,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1405,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "guardian_slam": {
       "duration_seconds": 0.48,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.07422788868374422,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0742,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "shatter": {
       "duration_seconds": 0.33,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.09644163897727975,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0964,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "room_clear": {
       "duration_seconds": 0.51,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.16530432106456042,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1653,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "blessing": {
       "duration_seconds": 0.61,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.16926849677238553,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1693,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "victory": {
       "duration_seconds": 1.25,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.15034888761581114,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1503,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
     },
     "defeat": {
       "duration_seconds": 1.05,
-      "peak_linear": 0.579986572265625,
-      "rms_linear": 0.16502149771724223,
+      "peak_linear": 0.58,
+      "rms_linear": 0.165,
       "sample_rate": 44100,
       "channels": 1,
-      "bits_per_sample": 16
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "jump": {
+      "duration_seconds": 0.16,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1673,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "land": {
+      "duration_seconds": 0.16,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0706,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "low_hp": {
+      "duration_seconds": 0.52,
+      "peak_linear": 0.58,
+      "rms_linear": 0.2189,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "pause": {
+      "duration_seconds": 0.13,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0971,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "resume": {
+      "duration_seconds": 0.16,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0935,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "room_transition": {
+      "duration_seconds": 0.55,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1519,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "boss_death": {
+      "duration_seconds": 1.35,
+      "peak_linear": 0.58,
+      "rms_linear": 0.094,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "ui_confirm": {
+      "duration_seconds": 0.16,
+      "peak_linear": 0.58,
+      "rms_linear": 0.0903,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
+    },
+    "ui_hover": {
+      "duration_seconds": 0.09,
+      "peak_linear": 0.58,
+      "rms_linear": 0.1088,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": false
     }
+  },
+  "ambience": {
+    "ambient_ruins_loop": {
+      "duration_seconds": 8.0,
+      "peak_linear": 0.34,
+      "rms_linear": 0.108,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": true,
+      "loop_seconds": 8.0,
+      "loop_seam_delta": 0,
+      "loop_max_interior_step": 512
+    },
+    "ambient_boss_loop": {
+      "duration_seconds": 8.0,
+      "peak_linear": 0.34,
+      "rms_linear": 0.1284,
+      "sample_rate": 44100,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "loop": true,
+      "loop_seconds": 8.0,
+      "loop_seam_delta": 0,
+      "loop_max_interior_step": 700
+    }
+  },
+  "p7_additions": {
+    "one_shots": [
+      "jump",
+      "land",
+      "low_hp",
+      "pause",
+      "resume",
+      "room_transition",
+      "boss_death",
+      "ui_confirm",
+      "ui_hover"
+    ],
+    "ambience": [
+      "ambient_ruins_loop",
+      "ambient_boss_loop"
+    ]
   }
 }

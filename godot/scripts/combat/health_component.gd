@@ -5,6 +5,10 @@ extends Node
 signal health_changed(current: int, maximum: int)
 signal damaged(amount: int, info: DamageInfo)
 signal died(info: DamageInfo)
+## A contact that landed while invulnerable. Emitted instead of damaged(); the return value
+## and every downstream rule (stagger, post-hit protection) stay exactly as before, so this
+## is purely a confirmation channel for feedback (GAMEPLAY_DESIGN G-04A).
+signal blocked(info: DamageInfo)
 
 @export_range(1, 10000, 1) var max_health: int = 100
 @export_range(0.0, 10.0, 0.05) var damage_taken_multiplier: float = 1.0
@@ -38,6 +42,11 @@ func is_invulnerable() -> bool:
 	return protection_remaining > 0.0 or not _invulnerability_reasons.is_empty()
 
 
+func has_invulnerability_reason(reason: StringName) -> bool:
+	# Lets feedback distinguish a deliberate dodge i-frame from post-hit protection.
+	return _invulnerability_reasons.has(reason)
+
+
 func set_invulnerable(reason: StringName, enabled: bool) -> void:
 	if enabled:
 		_invulnerability_reasons[reason] = true
@@ -54,6 +63,10 @@ func receive_damage(amount: int, info: DamageInfo) -> int:
 	if _resolved_order.size() > 256:
 		_resolved_ids.erase(_resolved_order.pop_front())
 	if is_invulnerable() or amount <= 0:
+		# Feedback only: the block itself is already resolved (attack id recorded above),
+		# so the shield behaves identically with or without listeners. G-04A.
+		if amount > 0 and is_invulnerable():
+			blocked.emit(info)
 		return 0
 	var applied: int = mini(current_health, amount)
 	current_health -= applied
